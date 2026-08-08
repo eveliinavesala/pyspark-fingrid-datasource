@@ -6,19 +6,21 @@ types of Fingrid datasets and perform basic operations.
 """
 
 import os
-from datetime import datetime, timedelta
+import sys
+from datetime import datetime, timedelta, timezone
 
 from pyspark.sql import SparkSession
-from pyspark_fingrid import read_fingrid_data, list_available_datasets
+from pyspark.sql import functions as F
+
+from pyspark_fingrid import list_available_datasets, read_fingrid_data
 
 
 def main():
     """Run basic usage examples."""
     # Initialize Spark session
-    spark = SparkSession.builder \
-        .appName("Fingrid Basic Usage") \
-        .config("spark.sql.adaptive.enabled", "true") \
-        .getOrCreate()
+    spark = (
+        SparkSession.builder.appName("Fingrid Basic Usage").config("spark.sql.adaptive.enabled", "true").getOrCreate()
+    )
 
     # Get API key from environment variable
     api_key = os.getenv('FINGRID_API_KEY')
@@ -35,7 +37,7 @@ def main():
     list_available_datasets()
 
     # Example 1: Read electricity production data (default time range)
-    print("\n" + "="*20 + " EXAMPLE 1 " + "="*20)
+    print("\n" + "=" * 20 + " EXAMPLE 1 " + "=" * 20)
     print("📊 Reading electricity production data (last 30 minutes)")
 
     try:
@@ -61,7 +63,7 @@ def main():
         print(f"❌ Error reading production data: {e}")
 
     # Example 2: Read electricity shortage status
-    print("\n" + "="*20 + " EXAMPLE 2 " + "="*20)
+    print("\n" + "=" * 20 + " EXAMPLE 2 " + "=" * 20)
     print("⚠️  Reading electricity shortage status")
 
     try:
@@ -76,9 +78,7 @@ def main():
 
             # Show status distribution
             print("\n📊 Status distribution:")
-            df_shortage.groupBy("shortage_status", "shortage_status_description") \
-                .count() \
-                .show(truncate=False)
+            df_shortage.groupBy("shortage_status", "shortage_status_description").count().show(truncate=False)
 
         else:
             print("❌ No data returned")
@@ -87,12 +87,12 @@ def main():
         print(f"❌ Error reading shortage data: {e}")
 
     # Example 3: Read data with custom time range
-    print("\n" + "="*20 + " EXAMPLE 3 " + "="*20)
+    print("\n" + "=" * 20 + " EXAMPLE 3 " + "=" * 20)
     print("⏰ Reading production data with custom time range (last 2 hours)")
 
     try:
         # Define time range
-        end_time = datetime.now()
+        end_time = datetime.now(timezone.utc)
         start_time = end_time - timedelta(hours=2)
 
         start_time_str = start_time.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -100,19 +100,16 @@ def main():
 
         print(f"📅 Time range: {start_time_str} to {end_time_str}")
 
-        df_custom = read_fingrid_data(
-            api_key,
-            192,
-            start_time_str,
-            end_time_str
-        )
+        df_custom = read_fingrid_data(api_key, 192, start_time_str, end_time_str)
 
         if df_custom:
             print(f"\n📊 Records in 2-hour range: {df_custom.count()}")
 
             # Show time range of data
             time_stats = df_custom.agg(
-                {"startTime": "min", "startTime": "max", "production_mw": "avg"}
+                F.min("startTime").alias("min_start_time"),
+                F.max("startTime").alias("max_start_time"),
+                F.avg("production_mw").alias("avg_production_mw"),
             ).collect()[0]
 
             print(f"📊 Data from: {time_stats[0]} to {time_stats[1]}")
@@ -125,7 +122,7 @@ def main():
         print(f"❌ Error reading custom range data: {e}")
 
     # Example 4: Basic analysis combining datasets
-    print("\n" + "="*20 + " EXAMPLE 4 " + "="*20)
+    print("\n" + "=" * 20 + " EXAMPLE 4 " + "=" * 20)
     print("🔬 Basic analysis: Production trends")
 
     try:
@@ -138,18 +135,18 @@ def main():
 
             # SQL analysis
             trend_analysis = spark.sql("""
-                SELECT 
-                    startTime,
-                    production_mw,
-                    production_mw - LAG(production_mw) OVER (ORDER BY startTime) as change_mw,
-                    CASE 
-                        WHEN production_mw > LAG(production_mw) OVER (ORDER BY startTime) THEN 'Increasing'
-                        WHEN production_mw < LAG(production_mw) OVER (ORDER BY startTime) THEN 'Decreasing'
-                        ELSE 'Stable'
-                    END as trend
-                FROM production
-                ORDER BY startTime
-            """)
+                                       SELECT
+                                           startTime,
+                                           production_mw,
+                                           production_mw - LAG(production_mw) OVER (ORDER BY startTime) as change_mw,
+                                           CASE
+                                               WHEN production_mw > LAG(production_mw) OVER (ORDER BY startTime) THEN 'Increasing'
+                                               WHEN production_mw < LAG(production_mw) OVER (ORDER BY startTime) THEN 'Decreasing'
+                                               ELSE 'Stable'
+                                               END as trend
+                                       FROM production
+                                       ORDER BY startTime
+                                       """)
 
             print("\n📈 Production trends:")
             trend_analysis.show(10, truncate=False)
@@ -157,24 +154,24 @@ def main():
             # Trend summary
             print("\n📊 Trend summary:")
             trend_summary = spark.sql("""
-                SELECT
-                    trend,
-                    COUNT(*) as count,
+                                      SELECT
+                                          trend,
+                                          COUNT(*) as count,
                     ROUND(AVG(change_mw), 2) as avg_change_mw
-                FROM (
-                    SELECT
-                        production_mw - LAG(production_mw) OVER (ORDER BY startTime) as change_mw,
-                        CASE
-                            WHEN production_mw > LAG(production_mw) OVER (ORDER BY startTime) THEN 'Increasing'
-                            WHEN production_mw < LAG(production_mw) OVER (ORDER BY startTime) THEN 'Decreasing'
-                            ELSE 'Stable'
-                        END as trend
-                    FROM production
-                )
-                WHERE trend IS NOT NULL
-                GROUP BY trend
-                ORDER BY count DESC
-            """)
+                                      FROM (
+                                          SELECT
+                                          production_mw - LAG(production_mw) OVER (ORDER BY startTime) as change_mw,
+                                          CASE
+                                          WHEN production_mw > LAG(production_mw) OVER (ORDER BY startTime) THEN 'Increasing'
+                                          WHEN production_mw < LAG(production_mw) OVER (ORDER BY startTime) THEN 'Decreasing'
+                                          ELSE 'Stable'
+                                          END as trend
+                                          FROM production
+                                          )
+                                      WHERE trend IS NOT NULL
+                                      GROUP BY trend
+                                      ORDER BY count DESC
+                                      """)
             trend_summary.show(truncate=False)
 
         else:
@@ -184,7 +181,7 @@ def main():
         print(f"❌ Error in trend analysis: {e}")
 
     # Summary
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("✅ Examples completed!")
     print("\n💡 Next steps:")
     print("   - Explore more datasets using list_available_datasets()")
@@ -198,4 +195,14 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n\n🛑 Interrupted - stopping...")
+        try:
+            active = SparkSession.getActiveSession()
+            if active is not None:
+                active.stop()
+        except Exception:
+            pass
+        sys.exit(130)

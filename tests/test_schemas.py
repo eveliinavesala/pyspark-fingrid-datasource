@@ -5,15 +5,18 @@ This module contains unit tests for the schema implementations
 and registry functionality.
 """
 
-import pytest
 from datetime import datetime
-from pyspark.sql.types import StructType, StructField, TimestampType, DoubleType, IntegerType, StringType
+
+import pytest
+from pyspark.sql.types import (
+    StructType,
+)
 
 from pyspark_fingrid.schemas import (
-    FingridSchemaRegistry,
+    ElectricityConsumptionSchema,
     ElectricityProductionSchema,
     ElectricityShortageStatusSchema,
-    ElectricityConsumptionSchema,
+    FingridSchemaRegistry,
 )
 
 
@@ -27,7 +30,7 @@ class TestElectricityProductionSchema:
 
         assert isinstance(schema, StructType)
         field_names = [field.name for field in schema.fields]
-        expected_fields = ['startTime', 'endTime', 'production_mw', 'datasetId']
+        expected_fields = ["startTime", "endTime", "production_mw", "datasetId"]
         assert field_names == expected_fields
 
     def test_transform_record(self):
@@ -35,10 +38,10 @@ class TestElectricityProductionSchema:
         schema_handler = ElectricityProductionSchema(192)
 
         raw_record = {
-            'datasetId': 192,
-            'startTime': '2024-07-24T12:00:00.000Z',
-            'endTime': '2024-07-24T12:03:00.000Z',
-            'value': 6789.5
+            "datasetId": 192,
+            "startTime": "2024-07-24T12:00:00.000Z",
+            "endTime": "2024-07-24T12:03:00.000Z",
+            "value": 6789.5,
         }
 
         row = schema_handler.transform_record(raw_record)
@@ -53,9 +56,9 @@ class TestElectricityProductionSchema:
         schema_handler = ElectricityProductionSchema(192)
         description = schema_handler.get_description()
 
-        assert 'electricity production' in description.lower()
-        assert 'MW' in description
-        assert '3 minutes' in description
+        assert "electricity production" in description.lower()
+        assert "MW" in description
+        assert "3 minutes" in description
 
 
 class TestElectricityShortageStatusSchema:
@@ -67,7 +70,13 @@ class TestElectricityShortageStatusSchema:
         schema = schema_handler.get_schema()
 
         field_names = [field.name for field in schema.fields]
-        expected_fields = ['startTime', 'endTime', 'shortage_status', 'shortage_status_description', 'datasetId']
+        expected_fields = [
+            "startTime",
+            "endTime",
+            "shortage_status",
+            "shortage_status_description",
+            "datasetId",
+        ]
         assert field_names == expected_fields
 
     def test_status_code_mapping(self):
@@ -79,15 +88,15 @@ class TestElectricityShortageStatusSchema:
             (1, "Electricity shortage possible"),
             (2, "High risk of electricity shortage"),
             (3, "Electricity shortage"),
-            (99, "Unknown")  # Invalid code
+            (99, "Unknown"),  # Invalid code
         ]
 
         for status_code, expected_description in test_cases:
             raw_record = {
-                'datasetId': 336,
-                'startTime': '2024-07-24T12:00:00.000Z',
-                'endTime': '2024-07-24T12:03:00.000Z',
-                'value': status_code
+                "datasetId": 336,
+                "startTime": "2024-07-24T12:00:00.000Z",
+                "endTime": "2024-07-24T12:03:00.000Z",
+                "value": status_code,
             }
 
             row = schema_handler.transform_record(raw_record)
@@ -105,8 +114,15 @@ class TestElectricityConsumptionSchema:
 
         field_names = [field.name for field in schema.fields]
         expected_fields = [
-            'startTime', 'endTime', 'consumption_kwh', 'datasetId',
-            'time_series_type', 'resolution', 'unit', 'read_timestamp', 'measurement_count'
+            "startTime",
+            "endTime",
+            "consumption_kwh",
+            "datasetId",
+            "time_series_type",
+            "resolution",
+            "unit",
+            "read_timestamp",
+            "measurement_count",
         ]
         assert field_names == expected_fields
 
@@ -115,26 +131,26 @@ class TestElectricityConsumptionSchema:
         schema_handler = ElectricityConsumptionSchema(363)
 
         raw_record = {
-            'datasetId': 363,
-            'startTime': '2024-07-24T12:00:00.000Z',
-            'endTime': '2024-07-24T13:00:00.000Z',
-            'value': 3502751.77,
-            'additionalJson': {
-                'TimeSeriesType': 'CTT_SUM_CONS_ACP',
-                'Res': 'PT1H',
-                'Uom': 'KWH',
-                'ReadTS': '2024-07-24T12:00:00Z',
-                'Value': '3502751.77',
-                'Count': '3600745'
-            }
+            "datasetId": 363,
+            "startTime": "2024-07-24T12:00:00.000Z",
+            "endTime": "2024-07-24T13:00:00.000Z",
+            "value": 3502751.77,
+            "additionalJson": {
+                "TimeSeriesType": "CTT_SUM_CONS_ACP",
+                "Res": "PT1H",
+                "Uom": "KWH",
+                "ReadTS": "2024-07-24T12:00:00Z",
+                "Value": "3502751.77",
+                "Count": "3600745",
+            },
         }
 
         row = schema_handler.transform_record(raw_record)
 
         assert row.consumption_kwh == 3502751.77
-        assert row.time_series_type == 'CTT_SUM_CONS_ACP'
-        assert row.resolution == 'PT1H'
-        assert row.unit == 'KWH'
+        assert row.time_series_type == "CTT_SUM_CONS_ACP"
+        assert row.resolution == "PT1H"
+        assert row.unit == "KWH"
         assert row.measurement_count == 3600745
         assert isinstance(row.read_timestamp, datetime)
 
@@ -150,61 +166,17 @@ class TestFingridSchemaRegistry:
 
     def test_get_unregistered_schema(self):
         """Test getting an unregistered schema raises ValueError."""
-        with pytest.raises(ValueError, match="Dataset 99"""
-        Tests for Fingrid dataset schemas.
+        with pytest.raises(ValueError, match="Dataset 999 not supported"):
+            FingridSchemaRegistry.get_schema(999)
 
-        This module contains unit tests for the schema implementations
-        and registry functionality.
-        """
+    def test_is_registered(self):
+        """Test is_registered reports registered and unregistered ids correctly."""
+        assert FingridSchemaRegistry.is_registered(192) is True
+        assert FingridSchemaRegistry.is_registered(999) is False
 
-        import pytest
-        from datetime import datetime
-        from pyspark.sql.types import StructType, StructField, TimestampType, DoubleType, IntegerType, StringType
-
-        from pyspark_fingrid.schemas import (
-            FingridSchemaRegistry,
-            ElectricityProductionSchema,
-            ElectricityShortageStatusSchema,
-            ElectricityConsumptionSchema,
-        )
-
-
-        class TestElectricityProductionSchema:
-            """Test electricity production schema (dataset 192)."""
-
-    def test_schema_structure(self):
-        """Test that schema has correct structure."""
-        schema_handler = ElectricityProductionSchema(192)
-        schema = schema_handler.get_schema()
-
-        assert isinstance(schema, StructType)
-        field_names = [field.name for field in schema.fields]
-        expected_fields = ['startTime', 'endTime', 'production_mw', 'datasetId']
-        assert field_names == expected_fields
-
-    def test_transform_record(self):
-        """Test record transformation."""
-        schema_handler = ElectricityProductionSchema(192)
-
-        raw_record = {
-            'datasetId': 192,
-            'startTime': '2024-07-24T12:00:00.000Z',
-            'endTime': '2024-07-24T12:03:00.000Z',
-            'value': 6789.5
-        }
-
-        row = schema_handler.transform_record(raw_record)
-
-        assert row.datasetId == 192
-        assert row.production_mw == 6789.5
-        assert isinstance(row.startTime, datetime)
-        assert isinstance(row.endTime, datetime)
-
-    def test_description(self):
-        """Test dataset description."""
-        schema_handler = ElectricityProductionSchema(192)
-        description = schema_handler.get_description()
-
-        assert 'electricity production' in description.lower()
-        assert 'MW' in description
-        assert '3
+    def test_get_available_datasets(self):
+        """Test get_available_datasets returns all registered dataset ids."""
+        available = FingridSchemaRegistry.get_available_datasets()
+        assert 192 in available
+        assert 336 in available
+        assert 363 in available

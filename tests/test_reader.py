@@ -1,15 +1,19 @@
 """
-Tests for the main data reader functionality.
+Tests for the main data reader orchestration (read_fingrid_data).
 
-This module contains tests for the read_fingrid_data function
-and related API interaction functionality.
+HTTP/pagination/retry behavior is tested in test_client.py; option parsing
+and validation is tested in test_options.py. This module tests only the
+orchestration read_fingrid_data() does on top of those: wiring a
+FingridApiClient, transforming records, and building a DataFrame.
 """
 
-import pytest
-from unittest.mock import patch, Mock
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+from unittest.mock import Mock, patch
 
-from pyspark_fingrid.reader import read_fingrid_data, list_available_datasets
+import pytest
+
+from pyspark_fingrid.exceptions import FingridApiError, FingridRateLimitError
+from pyspark_fingrid.reader import list_available_datasets, read_fingrid_data
 
 
 class TestReadFingridData:
@@ -17,199 +21,132 @@ class TestReadFingridData:
 
     def test_invalid_inputs(self):
         """Test validation of invalid inputs."""
-        # Test missing API key
         with pytest.raises(ValueError, match="api_key is required"):
             read_fingrid_data("", 192)
 
-        # Test invalid dataset_id type
         with pytest.raises(ValueError, match="dataset_id must be an integer"):
             read_fingrid_data("test-key", "192")
 
-        # Test unsupported dataset
         with pytest.raises(ValueError, match="Dataset 999 not supported"):
             read_fingrid_data("test-key", 999)
 
-    @patch('pyspark_fingrid.reader._fetch_metadata')
-    @patch('pyspark_fingrid.reader._fetch_data')
-    @patch('pyspark.sql.SparkSession.getActiveSession')
-    def test_successful_data_read(self, mock_spark_session, mock_fetch_data, mock_fetch_metadata):
+    @patch("pyspark_fingrid.reader.FingridApiClient")
+    @patch("pyspark.sql.SparkSession.getActiveSession")
+    def test_successful_data_read(self, mock_spark_session, mock_client_cls):
         """Test successful data reading and DataFrame creation."""
-        # Mock Spark session
         mock_spark = Mock()
         mock_spark_session.return_value = mock_spark
         mock_df = Mock()
         mock_spark.createDataFrame.return_value = mock_df
 
-        # Mock metadata response
-        mock_fetch_metadata.return_value = {
-            'nameEn': 'Test Dataset',
-            'unitEn': 'MW',
-            'updateCadenceEn': '3 min'
-        }
-
-        # Mock data response
-        mock_fetch_data.return_value = [
+        mock_client = mock_client_cls.return_value
+        mock_client.fetch_metadata.return_value = {"nameEn": "Test Dataset", "unitEn": "MW", "updateCadenceEn": "3 min"}
+        mock_client.fetch_data.return_value = [
             {
-                'datasetId': 192,
-                'startTime': '2024-07-24T12:00:00.000Z',
-                'endTime': '2024-07-24T12:03:00.000Z',
-                'value': 6789.5
+                "datasetId": 192,
+                "startTime": "2024-07-24T12:00:00.000Z",
+                "endTime": "2024-07-24T12:03:00.000Z",
+                "value": 6789.5,
             }
         ]
 
-        # Test the function
         result = read_fingrid_data("test-key", 192)
 
-        # Verify calls
-        mock_fetch_metadata.assert_called_once_with("test-key", 192)
-        mock_fetch_data.assert_called_once()
+        mock_client_cls.assert_called_once_with("test-key")
+        mock_client.fetch_metadata.assert_called_once_with(192)
+        mock_client.fetch_data.assert_called_once()
         mock_spark.createDataFrame.assert_called_once()
-
-        # Verify result
         assert result == mock_df
 
-    @patch('pyspark_fingrid.reader._fetch_data')
-    def test_no_data_returned(self, mock_fetch_data):
-        """Test handling when no data is returned from API."""
-        mock_fetch_data.return_value = None
+    @patch("pyspark_fingrid.reader.FingridApiClient")
+    def test_no_data_returned(self, mock_client_cls):
+        """Test handling when the API has no data for the range."""
+        mock_client = mock_client_cls.return_value
+        mock_client.fetch_metadata.return_value = None
+        mock_client.fetch_data.return_value = []
 
         result = read_fingrid_data("test-key", 192)
         assert result is None
 
-    @patch('pyspark_fingrid.reader._fetch_data')
-    @patch('pyspark.sql.SparkSession.getActiveSession')
-    def test_no_spark_session(self, mock_spark_session, mock_fetch_data):
+    @patch("pyspark_fingrid.reader.FingridApiClient")
+    def test_api_error_returns_none(self, mock_client_cls):
+        """Test that a failed fetch (e.g. exhausted retries) is reported and returns None
+        rather than propagating, matching this function's existing None-on-failure contract."""
+        mock_client = mock_client_cls.return_value
+        mock_client.fetch_metadata.return_value = None
+        mock_client.fetch_data.side_effect = FingridApiError("boom")
+
+        result = read_fingrid_data("test-key", 192)
+        assert result is None
+
+    @patch("pyspark_fingrid.reader.FingridApiClient")
+    def test_metadata_rate_limit_does_not_abort_the_read(self, mock_client_cls):
+        """Metadata is best-effort: even if it's rate limited, data fetching should proceed."""
+        mock_client = mock_client_cls.return_value
+        mock_client.fetch_metadata.side_effect = FingridRateLimitError("rate limited")
+        mock_client.fetch_data.return_value = []  # short-circuit before DataFrame creation
+
+        result = read_fingrid_data("test-key", 192)
+
+        mock_client.fetch_data.assert_called_once()
+        assert result is None
+
+    @patch("pyspark_fingrid.reader.FingridApiClient")
+    def test_metadata_generic_api_error_does_not_abort_the_read(self, mock_client_cls):
+        """Metadata is best-effort even on a non-rate-limit failure (e.g. a network
+        error), not just on FingridRateLimitError specifically."""
+        mock_client = mock_client_cls.return_value
+        mock_client.fetch_metadata.side_effect = FingridApiError("network error")
+        mock_client.fetch_data.return_value = []  # short-circuit before DataFrame creation
+
+        result = read_fingrid_data("test-key", 192)
+
+        mock_client.fetch_data.assert_called_once()
+        assert result is None
+
+    @patch("pyspark_fingrid.reader.FingridApiClient")
+    @patch("pyspark.sql.SparkSession.getActiveSession")
+    def test_no_spark_session(self, mock_spark_session, mock_client_cls):
         """Test handling when no Spark session is available."""
         mock_spark_session.return_value = None
-        mock_fetch_data.return_value = [{'test': 'data'}]
+        mock_client = mock_client_cls.return_value
+        mock_client.fetch_metadata.return_value = None
+        mock_client.fetch_data.return_value = [{"datasetId": 192, "startTime": None, "endTime": None, "value": 1.0}]
 
         result = read_fingrid_data("test-key", 192)
         assert result is None
 
+    @patch("pyspark_fingrid.reader.FingridApiClient")
+    def test_default_time_range_uses_utc(self, mock_client_cls):
+        """Test that the default (no start/end given) time window is computed in UTC.
 
-class TestFetchMetadata:
-    """Test metadata fetching functionality."""
+        Regression test: previously this used naive datetime.now() (local time)
+        while formatting it with a trailing 'Z' (UTC marker), which silently
+        produced the wrong window on any machine not running in UTC.
+        """
+        mock_client = mock_client_cls.return_value
+        mock_client.fetch_metadata.return_value = None
+        mock_client.fetch_data.return_value = []  # short-circuit before DataFrame creation
 
-    @patch('requests.get')
-    def test_successful_metadata_fetch(self, mock_get):
-        """Test successful metadata fetching."""
-        from pyspark_fingrid.reader import _fetch_metadata
+        before = datetime.now(timezone.utc)
+        read_fingrid_data("test-key", 192)
+        after = datetime.now(timezone.utc)
 
-        # Mock successful response
-        mock_response = Mock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {'nameEn': 'Test Dataset'}
-        mock_get.return_value = mock_response
+        assert mock_client.fetch_data.called
+        _, called_start, called_end = mock_client.fetch_data.call_args[0][:3]
 
-        result = _fetch_metadata("test-key", 192)
+        called_end_dt = datetime.strptime(called_end, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        called_start_dt = datetime.strptime(called_start, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
 
-        assert result == {'nameEn': 'Test Dataset'}
-        mock_get.assert_called_once_with(
-            "https://data.fingrid.fi/api/datasets/192",
-            headers={'x-api-key': 'test-key'},
-            timeout=30
-        )
-
-    @patch('requests.get')
-    def test_failed_metadata_fetch(self, mock_get):
-        """Test failed metadata fetching."""
-        from pyspark_fingrid.reader import _fetch_metadata
-
-        # Mock failed response
-        mock_response = Mock()
-        mock_response.status_code = 404
-        mock_get.return_value = mock_response
-
-        result = _fetch_metadata("test-key", 192)
-        assert result is None
-
-    @patch('requests.get')
-    def test_metadata_fetch_exception(self, mock_get):
-        """Test metadata fetching with network exception."""
-        from pyspark_fingrid.reader import _fetch_metadata
-
-        mock_get.side_effect = Exception("Network error")
-
-        result = _fetch_metadata("test-key", 192)
-        assert result is None
-
-
-class TestFetchData:
-    """Test data fetching functionality."""
-
-    @patch('requests.get')
-    def test_successful_data_fetch(self, mock_get):
-        """Test successful data fetching."""
-        from pyspark_fingrid.reader import _fetch_data
-
-        # Mock successful response
-        mock_response = Mock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            'data': [{'test': 'record'}],
-            'pagination': {'total': 1}
-        }
-        mock_get.return_value = mock_response
-
-        result = _fetch_data("test-key", 192, "2024-07-24T00:00:00Z", "2024-07-24T01:00:00Z")
-
-        assert result == [{'test': 'record'}]
-        mock_get.assert_called_once()
-
-    @patch('requests.get')
-    @patch('time.sleep')
-    def test_rate_limit_retry(self, mock_sleep, mock_get):
-        """Test rate limit handling with retry."""
-        from pyspark_fingrid.reader import _fetch_data
-
-        # Mock rate limited response, then successful
-        rate_limited_response = Mock()
-        rate_limited_response.status_code = 429
-
-        success_response = Mock()
-        success_response.status_code = 200
-        success_response.json.return_value = {'data': [{'test': 'record'}]}
-
-        mock_get.side_effect = [rate_limited_response, success_response]
-
-        result = _fetch_data("test-key", 192, "2024-07-24T00:00:00Z", "2024-07-24T01:00:00Z")
-
-        assert result == [{'test': 'record'}]
-        assert mock_get.call_count == 2
-        mock_sleep.assert_called_once_with(10)
-
-    @patch('requests.get')
-    def test_api_error(self, mock_get):
-        """Test API error handling."""
-        from pyspark_fingrid.reader import _fetch_data
-
-        mock_response = Mock()
-        mock_response.status_code = 401
-        mock_response.text = "Unauthorized"
-        mock_get.return_value = mock_response
-
-        result = _fetch_data("test-key", 192, "2024-07-24T00:00:00Z", "2024-07-24T01:00:00Z")
-        assert result is None
-
-    @patch('requests.get')
-    def test_invalid_response_structure(self, mock_get):
-        """Test handling of invalid response structure."""
-        from pyspark_fingrid.reader import _fetch_data
-
-        mock_response = Mock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {'invalid': 'structure'}
-        mock_get.return_value = mock_response
-
-        result = _fetch_data("test-key", 192, "2024-07-24T00:00:00Z", "2024-07-24T01:00:00Z")
-        assert result is None
+        # The "now" used to build the window must fall within [before, after] in UTC.
+        assert before - timedelta(seconds=1) <= called_end_dt <= after + timedelta(seconds=1)
+        assert (called_end_dt - called_start_dt) == timedelta(minutes=30)
 
 
 class TestListAvailableDatasets:
-    """Test list_available_datasets function."""
+    """Test list_available_datasets convenience function."""
 
-    @patch('pyspark_fingrid.schemas.FingridSchemaRegistry.list_available_datasets')
+    @patch("pyspark_fingrid.schemas.registry.FingridSchemaRegistry.list_available_datasets")
     def test_list_available_datasets(self, mock_list):
-        """Test that function delegates to registry."""
         list_available_datasets()
         mock_list.assert_called_once()

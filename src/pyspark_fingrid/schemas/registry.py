@@ -5,7 +5,6 @@ This module provides a central registry to map dataset IDs to their
 corresponding schema implementation classes.
 """
 
-from typing import Dict, Type, List
 from .base import FingridDatasetSchema
 
 
@@ -17,10 +16,10 @@ class FingridSchemaRegistry:
     corresponding schema implementation classes.
     """
 
-    _schemas: Dict[int, Type[FingridDatasetSchema]] = {}
+    _schemas: dict[int, type[FingridDatasetSchema]] = {}
 
     @classmethod
-    def register_schema(cls, dataset_id: int, schema_class: Type[FingridDatasetSchema]) -> None:
+    def register_schema(cls, dataset_id: int, schema_class: type[FingridDatasetSchema]) -> None:
         """
         Register a new dataset schema implementation.
 
@@ -47,10 +46,7 @@ class FingridSchemaRegistry:
         """
         if dataset_id not in cls._schemas:
             available = list(cls._schemas.keys())
-            raise ValueError(
-                f"Dataset {dataset_id} not supported. "
-                f"Available datasets: {available}"
-            )
+            raise ValueError(f"Dataset {dataset_id} not supported. Available datasets: {available}")
 
         schema_class = cls._schemas[dataset_id]
         return schema_class(dataset_id)
@@ -69,7 +65,7 @@ class FingridSchemaRegistry:
         return dataset_id in cls._schemas
 
     @classmethod
-    def get_available_datasets(cls) -> List[int]:
+    def get_available_datasets(cls) -> list[int]:
         """
         Get list of all registered dataset IDs.
 

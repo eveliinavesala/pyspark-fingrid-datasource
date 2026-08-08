@@ -7,10 +7,10 @@ schemas must implement.
 
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Any
 
-from pyspark.sql.types import StructType
 from pyspark.sql import Row
+from pyspark.sql.types import StructType
 
 
 class FingridDatasetSchema(ABC):
@@ -33,7 +33,7 @@ class FingridDatasetSchema(ABC):
             dataset_id: The Fingrid dataset ID
         """
         self.dataset_id = dataset_id
-        self.metadata: Optional[Dict[str, Any]] = None
+        self.metadata: dict[str, Any] | None = None
 
     @abstractmethod
     def get_schema(self) -> StructType:
@@ -43,10 +43,9 @@ class FingridDatasetSchema(ABC):
         Returns:
             StructType: PySpark schema with proper column names and types
         """
-        pass
 
     @abstractmethod
-    def transform_record(self, raw_record: Dict[str, Any]) -> Row:
+    def transform_record(self, raw_record: dict[str, Any]) -> Row:
         """
         Transform a raw API record into a PySpark Row.
 
@@ -56,7 +55,6 @@ class FingridDatasetSchema(ABC):
         Returns:
             Row: PySpark Row with dataset-specific schema
         """
-        pass
 
     @abstractmethod
     def get_description(self) -> str:
@@ -66,9 +64,8 @@ class FingridDatasetSchema(ABC):
         Returns:
             str: Dataset description
         """
-        pass
 
-    def parse_timestamp(self, timestamp_str: str) -> Optional[datetime]:
+    def parse_timestamp(self, timestamp_str: str) -> datetime | None:
         """
         Parse timestamp string to datetime object.
 
@@ -81,14 +78,14 @@ class FingridDatasetSchema(ABC):
         if not timestamp_str:
             return None
         try:
-            if timestamp_str.endswith('Z'):
-                return datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            if timestamp_str.endswith("Z"):
+                return datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
             else:
                 return datetime.fromisoformat(timestamp_str)
         except (ValueError, TypeError):
             return None
 
-    def parse_float(self, value: Any) -> Optional[float]:
+    def parse_float(self, value: Any) -> float | None:
         """
         Safely parse value to float.
 
@@ -105,7 +102,7 @@ class FingridDatasetSchema(ABC):
         except (ValueError, TypeError):
             return None
 
-    def parse_int(self, value: Any) -> Optional[int]:
+    def parse_int(self, value: Any) -> int | None:
         """
         Safely parse value to integer.
 
@@ -122,7 +119,7 @@ class FingridDatasetSchema(ABC):
         except (ValueError, TypeError):
             return None
 
-    def set_metadata(self, metadata: Dict[str, Any]) -> None:
+    def set_metadata(self, metadata: dict[str, Any]) -> None:
         """
         Set metadata fetched from API.
 
@@ -139,8 +136,8 @@ class FingridDatasetSchema(ABC):
             str: Unit of measurement
         """
         if self.metadata:
-            return self.metadata.get('unitEn', 'Unknown')
-        return 'Unknown'
+            return self.metadata.get("unitEn", "Unknown")
+        return "Unknown"
 
     def get_name(self) -> str:
         """
@@ -150,8 +147,8 @@ class FingridDatasetSchema(ABC):
             str: Dataset name
         """
         if self.metadata:
-            return self.metadata.get('nameEn', f'Dataset {self.dataset_id}')
-        return f'Dataset {self.dataset_id}'
+            return self.metadata.get("nameEn", f"Dataset {self.dataset_id}")
+        return f"Dataset {self.dataset_id}"
 
     def get_update_frequency(self) -> str:
         """
@@ -161,5 +158,5 @@ class FingridDatasetSchema(ABC):
             str: Update frequency
         """
         if self.metadata:
-            return self.metadata.get('updateCadenceEn', 'Unknown')
-        return 'Unknown'
+            return self.metadata.get("updateCadenceEn", "Unknown")
+        return "Unknown"

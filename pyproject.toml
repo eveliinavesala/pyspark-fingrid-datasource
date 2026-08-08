@@ -1,25 +1,56 @@
 [project]
 name = "pyspark-fingrid-datasource"
-version = "0.1.0"
+version = "0.2.0"
 description = "Access fingrid datasets via Apache Spark"
 authors = [
-    {name = "Chanukya Pekala",email = "chanukya.pekala@gmail.com"}
+    {name = "Chanukya Pekala",email = "chanukya.pekala@gmail.com"},
+    {name = "Eveliina Vesala",email = "eveliina.ves@gmail.com"}
 ]
 license = {text = "MIT"}
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "pyspark (>=4.1.1,<5.0.0)",
-    "requests (>=2.32.5,<3.0.0)"
+    "requests (>=2.32.5,<3.0.0)",
+    "pyarrow (>=14.0.0)"
 ]
 
 [tool.poetry]
 name = "pyspark-fingrid-datasource"
-version = "0.1.0"
+version = "0.2.0"
 description = "Access fingrid datasets via Apache Spark"
-authors = ["Chanukya Pekala <chanukya.pekala@gmail.com>"]
+authors = ["Chanukya Pekala <chanukya.pekala@gmail.com>", "Eveliina Vesala <eveliina.ves@gmail.com>"]
 readme = "README.md"
 packages = [{include = "pyspark_fingrid", from = "src"}]
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.0.0"
+ruff = ">=0.6.0"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+src = ["src", "tests", "examples"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort (import sorting)
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "SIM", # flake8-simplify
+]
+ignore = [
+    "E501",  # line length handled by formatter/line-length setting, not a hard error
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]  # assert False is fine in test helpers if ever used
+
+[tool.ruff.format]
+quote-style = "preserve"
 
 
 [build-system]

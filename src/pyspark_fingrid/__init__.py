@@ -14,25 +14,42 @@ Example:
     >>> df.show()
 """
 
-from .reader import read_fingrid_data, list_available_datasets
+from .datasource import FingridDataSource, FingridDataSourceReader, register
+from .exceptions import (
+    FingridApiError,
+    FingridConfigError,
+    FingridError,
+    FingridRateLimitError,
+    FingridSchemaError,
+)
+from .reader import list_available_datasets, read_fingrid_data
 from .schemas import (
-    FingridSchemaRegistry,
-    FingridDatasetSchema,
+    ElectricityConsumptionSchema,
     ElectricityProductionSchema,
     ElectricityShortageStatusSchema,
-    ElectricityConsumptionSchema,
+    FingridDatasetSchema,
+    FingridSchemaRegistry,
 )
 
-__version__ = "0.1.0"
-__author__ = "Your Name"
-__email__ = "your.email@example.com"
+__version__ = "0.2.0"
+__authors__ = ["Chanukya Pekala", "Eveliina Vesala"]
+__author__ = "Chanukya Pekala, Eveliina Vesala"
+__email__ = "chanukya.pekala@gmail.com, eveliina.ves@gmail.com"
 
 __all__ = [
     'read_fingrid_data',
     'list_available_datasets',
+    'FingridDataSource',
+    'FingridDataSourceReader',
+    'register',
     'FingridSchemaRegistry',
     'FingridDatasetSchema',
     'ElectricityProductionSchema',
     'ElectricityShortageStatusSchema',
     'ElectricityConsumptionSchema',
+    'FingridError',
+    'FingridConfigError',
+    'FingridSchemaError',
+    'FingridApiError',
+    'FingridRateLimitError',
 ]
